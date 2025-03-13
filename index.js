@@ -4,11 +4,17 @@ import { createHmac, hash } from 'node:crypto';
 
 import { Jimp } from "jimp";
 
+const STATE_ENUM = Object.fromEntries([
+  'NOTHING',
+  'WALL',
+  'PATH',
+  'START'
+].map((v, i) => [v, i.toString()]));
 const RGBA_TO_STATE = {
-  "65:64:64:255": '0', // nothing
-  "0:0:0:255": '1', // wall
-  "255:0:0:255": '2', // path
-  '255:255:255:255': '3', // start point
+  "65:64:64:255": STATE_ENUM.NOTHING,
+  "0:0:0:255": STATE_ENUM.WALL,
+  "255:0:0:255": STATE_ENUM.PATH,
+  '255:255:255:255': STATE_ENUM.START,
 }
 const STATE_TO_RGBA = Object.fromEntries(
   Object.entries(RGBA_TO_STATE).map(([k, v]) => [v, k])
@@ -219,6 +225,50 @@ Object.entries(tilesDict).map(async ([tileHash, tileMatrix]) => {
 // **********************************************
 
 // Rules from map *******************************
+const getTilePaths = tileHash => {
+  if (tileHash === START_TILE_HASH) {
+    return {n: true, w: true, s: true, e: true};
+  }
+  const tile = tilesDict[tileHash];
+  const CONNECTIONS = [
+    [1, 0, 'n'], [5, 0, 'n'],
+    [0, 2, 'e'], [7, 2, 'w'],
+    [1, 3, 's'], [5, 3, 's']
+  ];
+
+  const pathDict = {};
+  CONNECTIONS.forEach(([j, i, d]) => {
+    if (tile[i][j] === STATE_ENUM.PATH) {
+      pathDict[d] = true;
+    }
+  });
+  return pathDict;
+};
+const tileHasExit = tileHash => {
+  if (tileHash === START_TILE_HASH) {
+    return true;
+  }
+  const tile = tilesDict[tileHash];
+  const CONNECTIONS = [
+    [1, 0, 'ne'], [5, 0, 'nw'],
+    [0, 2, 'e'], [7, 2, 'w'],
+    [1, 3, 'se'], [5, 3, 'sw']
+  ];
+
+  const pathDict = {};
+  CONNECTIONS.forEach(([j, i, d]) => {
+    if (tile[i][j] === STATE_ENUM.PATH) {
+      pathDict[d] = true;
+    }
+  });
+  const paths = Object.keys(pathDict);
+  return paths.length > 2 || (
+    paths.length === 2 && (
+      tile[1][3] === STATE_ENUM.PATH || paths.every(path => path.includes('e')) || paths.every(path => path.includes('w'))
+    )
+  );
+}
+
 const mapsWithTileHash = maps.map(map =>
   map.map(row =>
     row.map(tile => createHash(flat(tile, 2).join('')))
@@ -241,51 +291,65 @@ maps.forEach((map, mapId) =>
 );
 const boardOrigin = {i: 2, j: 3};
 let revealRulesText = '';
-Object.entries(tileHashToPositions).forEach(([hash, positionsByMap]) => {
-  if ([EMPTY_TILE_HASH, START_TILE_HASH].includes(hash)) {
-    return;
-  }
-  let tab = 0;
-  revealRulesText += `Peça ${hash}\n`;
-  Object.entries(positionsByMap).forEach(([mapId, positions]) => {
-    if (Object.keys(positionsByMap).length > 1) {
-      tab++;
-      revealRulesText += Array(tab).fill('\t').join('');
-      revealRulesText += `Jogando missão ${mapId + 1}\n`;
+Object.entries(tileHashToPositions)
+  .sort((a, b) => {
+    if (a[0] === START_TILE_HASH) return -1;
+    if (b[0] === START_TILE_HASH) return 1;
+    return a[0] > b[0] ? 1 : -1;
+  })
+  .forEach(([tileHash, positionsByMap]) => {
+    if (tileHash === EMPTY_TILE_HASH) {
+      return;
     }
-    positions.forEach(({i, j}) => {
-      if (positions.length > 1) {
+    if (!tileHasExit(tileHash)) {
+      return;
+    }
+    let tab = 0;
+    if (tileHash === START_TILE_HASH) {
+      revealRulesText += `Do ponto de partida\n`;
+    } else {
+      revealRulesText += `Peça ${tileHash}\n`;
+    }
+    Object.entries(positionsByMap).forEach(([mapId, positions]) => {
+      if (Object.keys(positionsByMap).length > 1) {
         tab++;
         revealRulesText += Array(tab).fill('\t').join('');
-        revealRulesText += `Na posição ${i - boardOrigin.i}, ${j - boardOrigin.j}\n`;
+        revealRulesText += `Jogando missão ${parseInt(mapId) + 1}\n`;
       }
+      positions.forEach(({i, j}) => {
+        if (positions.length > 1) {
+          tab++;
+          revealRulesText += Array(tab).fill('\t').join('');
+          revealRulesText += `Na posição ${i - boardOrigin.i}, ${boardOrigin.j - j}\n`;
+        }
 
-      tab++;
-      if (j > 1 && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j - 1][i])) {
-        revealRulesText += Array(tab).fill('\t').join('');
-        revealRulesText += `Ao norte revele a peça ${mapsWithTileHash[mapId][j-1][i]}\n`;
-      }
-      if ((i < (mapsWithTileHash[mapId][0].length - 1)) && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j][i + 1])) {
-        revealRulesText += Array(tab).fill('\t').join('');
-        revealRulesText += `Ao leste revele a peça ${mapsWithTileHash[mapId][j][i + 1]}\n`;
-      }
-      if ((j < (mapsWithTileHash.length - 1)) && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j + 1][i])) {
-        revealRulesText += Array(tab).fill('\t').join('');
-        revealRulesText += `Ao sul revele a peça ${mapsWithTileHash[mapId][j + 1][i]}\n`;
-      }
-      if (i > 1 && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j][i - 1])) {
-        revealRulesText += Array(tab).fill('\t').join('');
-        revealRulesText += `Ao oeste revele a peça ${mapsWithTileHash[mapId][j][i - 1]}\n`;
-      }
-      tab--;
-      if (positions.length > 1) {
+        tab++;
+        const tilePaths = getTilePaths(tileHash);
+        if (tilePaths.n && mapsWithTileHash[mapId][j - 1][i] !== START_TILE_HASH) {
+          revealRulesText += Array(tab).fill('\t').join('');
+          revealRulesText += `Ao norte revele a peça ${mapsWithTileHash[mapId][j - 1][i]}\n`;
+        }
+        if (tilePaths.w && mapsWithTileHash[mapId][j][i + 1] !== START_TILE_HASH) {
+          revealRulesText += Array(tab).fill('\t').join('');
+          revealRulesText += `Ao leste revele a peça ${mapsWithTileHash[mapId][j][i + 1]}\n`;
+        }
+        if (tilePaths.s && mapsWithTileHash[mapId][j + 1][i] !== START_TILE_HASH) {
+          revealRulesText += Array(tab).fill('\t').join('');
+          revealRulesText += `Ao sul revele a peça ${mapsWithTileHash[mapId][j + 1][i]}\n`;
+        }
+        if (tilePaths.e && mapsWithTileHash[mapId][j][i - 1] !== START_TILE_HASH) {
+          revealRulesText += Array(tab).fill('\t').join('');
+          revealRulesText += `Ao oeste revele a peça ${mapsWithTileHash[mapId][j][i - 1]}\n`;
+        }
+        tab--;
+        if (positions.length > 1) {
+          tab--;
+        }
+      });
+      if (Object.keys(positionsByMap).length > 1) {
         tab--;
       }
-    });
-    if (Object.keys(positionsByMap).length > 1) {
-      tab--;
-    }
-  })
-});
-writeFile('./output/revealRules.txt', revealRulesText);
+    })
+  });
+writeFile('./output/reveal-tile.txt', revealRulesText);
 // **********************************************
