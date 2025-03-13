@@ -160,7 +160,6 @@ const hashCount = Object.fromEntries(Object.entries(tilesDict).map(([hash, _pixe
 const hashCounts = maps.map(() =>
   Object.fromEntries(Object.entries(tilesDict).map(([hash, _pixels]) => [hash, 0]))
 );
-console.log(hashAndTileList.length);
 hashAndTileList.forEach(([hash, _tile], i) => {
   const q = Math.floor( i / TILES_PER_MAP);
   hashCounts[q][hash]++
@@ -262,11 +261,14 @@ const tileHasExit = tileHash => {
     }
   });
   const paths = Object.keys(pathDict);
-  return paths.length > 2 || (
-    paths.length === 2 && (
-      tile[1][3] === STATE_ENUM.PATH || paths.every(path => path.includes('e')) || paths.every(path => path.includes('w'))
-    )
-  );
+
+  if (paths.length > 2) return true;
+  if (paths.length === 1) return false;
+  if (paths.every(path => path.includes('n'))) return false;
+  if (paths.every(path => path.includes('s'))) return false;
+  if (paths.every(path => path.includes('e'))) return true;
+  if (paths.every(path => path.includes('w'))) return true;
+  return tile[1][3] === STATE_ENUM.PATH;
 }
 
 const mapsWithTileHash = maps.map(map =>
