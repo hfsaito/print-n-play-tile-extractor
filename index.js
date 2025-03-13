@@ -88,6 +88,7 @@ const readComponent = async (path) => {
 
 // const EMPTY_TILE_HASH = 'f2d675f2b325bf00d8dc67902aacdd66e4357f03bc41e5f7c9afa317e56c33f0';
 const EMPTY_TILE_HASH = 'f2d675f2';
+const START_TILE_HASH = 'f420ed87';
 
 // Reading maps *********************************
 const MAP_HEIGHT_IN_TILES = 7;
@@ -134,7 +135,7 @@ const flat = (source, level = 1) => {
 };
 
 // Read maps ************************************
-const allMapPaths = await recursiveList('./maps');
+const allMapPaths = (await recursiveList('./maps')).sort();
 const maps = await Promise.all(allMapPaths.map(path => readMap(path)));
 const tiles = flat(maps, 2);
 // **********************************************
@@ -217,4 +218,74 @@ Object.entries(tilesDict).map(async ([tileHash, tileMatrix]) => {
 });
 // **********************************************
 
+// Rules from map *******************************
+const mapsWithTileHash = maps.map(map =>
+  map.map(row =>
+    row.map(tile => createHash(flat(tile, 2).join('')))
+  )
+);
+const tileHashToPositions = {};
+maps.forEach((map, mapId) =>
+  map.forEach((row, j) =>
+    row.forEach((tile, i) =>{
+      const hash = createHash(flat(tile, 2).join(''));
+      if (tileHashToPositions[hash] === undefined) {
+        tileHashToPositions[hash] = {};
+      }
+      if (tileHashToPositions[hash][mapId] === undefined) {
+        tileHashToPositions[hash][mapId] = [];
+      }
+      tileHashToPositions[hash][mapId].push({i, j});
+    })
+  )
+);
+const boardOrigin = {i: 2, j: 3};
+let revealRulesText = '';
+Object.entries(tileHashToPositions).forEach(([hash, positionsByMap]) => {
+  if ([EMPTY_TILE_HASH, START_TILE_HASH].includes(hash)) {
+    return;
+  }
+  let tab = 0;
+  revealRulesText += `Peça ${hash}\n`;
+  Object.entries(positionsByMap).forEach(([mapId, positions]) => {
+    if (Object.keys(positionsByMap).length > 1) {
+      tab++;
+      revealRulesText += Array(tab).fill('\t').join('');
+      revealRulesText += `Jogando missão ${mapId + 1}\n`;
+    }
+    positions.forEach(({i, j}) => {
+      if (positions.length > 1) {
+        tab++;
+        revealRulesText += Array(tab).fill('\t').join('');
+        revealRulesText += `Na posição ${i - boardOrigin.i}, ${j - boardOrigin.j}\n`;
+      }
+
+      tab++;
+      if (j > 1 && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j - 1][i])) {
+        revealRulesText += Array(tab).fill('\t').join('');
+        revealRulesText += `Ao norte revele a peça ${mapsWithTileHash[mapId][j-1][i]}\n`;
+      }
+      if ((i < (mapsWithTileHash[mapId][0].length - 1)) && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j][i + 1])) {
+        revealRulesText += Array(tab).fill('\t').join('');
+        revealRulesText += `Ao leste revele a peça ${mapsWithTileHash[mapId][j][i + 1]}\n`;
+      }
+      if ((j < (mapsWithTileHash.length - 1)) && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j + 1][i])) {
+        revealRulesText += Array(tab).fill('\t').join('');
+        revealRulesText += `Ao sul revele a peça ${mapsWithTileHash[mapId][j + 1][i]}\n`;
+      }
+      if (i > 1 && ![EMPTY_TILE_HASH, START_TILE_HASH].includes(mapsWithTileHash[mapId][j][i - 1])) {
+        revealRulesText += Array(tab).fill('\t').join('');
+        revealRulesText += `Ao oeste revele a peça ${mapsWithTileHash[mapId][j][i - 1]}\n`;
+      }
+      tab--;
+      if (positions.length > 1) {
+        tab--;
+      }
+    });
+    if (Object.keys(positionsByMap).length > 1) {
+      tab--;
+    }
+  })
+});
+writeFile('./output/revealRules.txt', revealRulesText);
 // **********************************************
